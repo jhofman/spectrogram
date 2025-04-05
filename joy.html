@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Frequency Spectrum</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+      background: #111;
+      color: #eee;
+    }
+    .canvas-container {
+      width: 80%;
+      margin: 0 auto; /* Center the container */
+    }
+    canvas {
+      display: block;
+      width: 100%; /* Limit the width to the container */
+      height: 80vh; /* Keep the height at 80% of the viewport height */
+      background: #111;
+    }
+    .controls {
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .controls label {
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2 style="text-align: center;">🎧 Live Frequency Spectrum</h2>
+  <div class="controls">
+    <label>Max Frequency (Hz): <input type="number" id="maxFreqInput" value="12000" min="1000" max="22050"></label>
+    <label>Min dB: <input type="number" id="minDbInput" value="-100" min="-150" max="0"></label>
+    <label>Max dB: <input type="number" id="maxDbInput" value="-30" min="-150" max="0"></label>
+  </div>
+  <div class="canvas-container">
+    <canvas id="spectrum"></canvas>
+  </div>
+  <script>
+    const canvas = document.getElementById('spectrum');
+    const ctx = canvas.getContext('2d');
+
+    // Dynamically set canvas height to 80% of the browser window
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight * 0.8;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let maxFreq = 12000;
+    let minDb = -100;
+    let maxDb = -30;
+    const fftSize = 2048;
+    const historyLength = 25; // N2ber of stacked lines
+    const lineSpacing = 32; // Vetical spacing between lines
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = fftSize;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Float32Array(bufferLength);
+
+    const history = Array.from({ length: historyLength }, () => new Array(bufferLength).fill(minDb));
+
+    function getFreqLabels(limit) {
+      return Array.from({ length: bufferLength }, (_, i) =>
+        i * audioCtx.sampleRate / fftSize
+      ).filter(freq => freq <= limit);
+    }
+
+    let freqLabels = getFreqLabels(maxFreq);
+
+    function updateChartSettings() {
+      maxFreq = parseInt(document.getElementById('maxFreqInput').value);
+      minDb = parseInt(document.getElementById('minDbInput').value);
+      maxDb = parseInt(document.getElementById('maxDbInput').value);
+
+      freqLabels = getFreqLabels(maxFreq);
+    }
+
+    document.getElementById('maxFreqInput').addEventListener('input', updateChartSettings);
+    document.getElementById('minDbInput').addEventListener('input', updateChartSettings);
+    document.getElementById('maxDbInput').addEventListener('input', updateChartSettings);
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const width = canvas.width;
+      const height = canvas.height;
+      const lineWidth = width / freqLabels.length;
+
+      history.forEach((lineData, index) => {
+        const yOffset = height - index * lineSpacing;
+
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(255, 255, 255, ${1 - index / historyLength})`;
+        ctx.lineWidth = 1;
+
+        lineData.forEach((value, i) => {
+          const x = i * lineWidth;
+          const y = yOffset - ((value - minDb) / (maxDb - minDb)) * lineSpacing * 5;
+
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+
+        ctx.stroke();
+      });
+    }
+
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => {
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        function update() {
+          analyser.getFloatFrequencyData(dataArray);
+
+          const noiseFloor = -80; // Set the noise floor threshold
+
+          // Shift history and add new data
+          history.pop();
+          history.unshift([...dataArray].map((value, i) => {
+            const freq = i * audioCtx.sampleRate / fftSize;
+            // Ignore values below the noise floor
+            return freq <= maxFreq ? Math.max(value, noiseFloor) : minDb;
+          }));
+
+          draw();
+        }
+
+        // Adjust update interval to match the longer sampling time
+        setInterval(update, 150); // Update every 200ms (5 frames per second)
+      })
+      .catch(err => {
+        console.error('Microphone access denied:', err);
+      });
+  </script>
+</body>
+</html>
