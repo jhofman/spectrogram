@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Frequency Spectrum</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+      background: #111;
+      color: #eee;
+    }
+    canvas {
+      background: #222;
+      border-radius: 10px;
+    }
+    .controls {
+      margin-bottom: 10px;
+    }
+    .controls label {
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🎧 Live Frequency Spectrum</h2>
+  <div class="controls">
+    <label>Max Frequency (Hz): <input type="number" id="maxFreqInput" value="12000" min="1000" max="22050"></label>
+    <label>Min dB: <input type="number" id="minDbInput" value="-100" min="-150" max="0"></label>
+    <label>Max dB: <input type="number" id="maxDbInput" value="-30" min="-150" max="0"></label>
+  </div>
+  <canvas id="spectrum" width="800" height="400"></canvas>
+  <script>
+    const canvas = document.getElementById('spectrum');
+    const ctx = canvas.getContext('2d');
+
+    let maxFreq = 12000;
+    let minDb = -100;
+    let maxDb = -30;
+    const fftSize = 2048;
+    const ghostCount = 10;
+
+    const ghostColor = 'rgba(0,255,0,0.1)';
+    const currentColor = 'rgba(0,255,0,1)';
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = fftSize;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Float32Array(bufferLength);
+
+    function getFreqLabels(limit) {
+      return Array.from({ length: bufferLength }, (_, i) =>
+        i * audioCtx.sampleRate / fftSize
+      ).filter(freq => freq <= limit);
+    }
+
+    let freqLabels = getFreqLabels(maxFreq);
+
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: freqLabels,
+        datasets: Array.from({ length: ghostCount + 1 }, (_, i) => ({
+          label: 'dB',
+          data: new Array(freqLabels.length).fill(minDb),
+          borderColor: i === 0 ? currentColor : ghostColor,
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          pointRadius: 0,
+          tension: 0.3
+        }))
+      },
+      options: {
+        animation: false,
+        scales: {
+          x: {
+            title: { display: true, text: 'Frequency (Hz)' },
+            min: 0,
+            max: maxFreq
+          },
+          y: {
+            title: { display: true, text: 'Intensity (dB)' },
+            min: minDb,
+            max: maxDb
+          }
+        },
+        plugins: {
+          legend: { display: false }
+        }
+      }
+    });
+
+    function updateChartSettings() {
+      maxFreq = parseInt(document.getElementById('maxFreqInput').value);
+      minDb = parseInt(document.getElementById('minDbInput').value);
+      maxDb = parseInt(document.getElementById('maxDbInput').value);
+
+      freqLabels = getFreqLabels(maxFreq);
+      chart.data.labels = freqLabels;
+      chart.data.datasets.forEach((dataset, i) => {
+        dataset.data = new Array(freqLabels.length).fill(minDb);
+        dataset.borderColor = i === 0 ? currentColor : ghostColor;
+      });
+      chart.options.scales.x.max = maxFreq;
+      chart.options.scales.y.min = minDb;
+      chart.options.scales.y.max = maxDb;
+      chart.update();
+    }
+
+    document.getElementById('maxFreqInput').addEventListener('input', updateChartSettings);
+    document.getElementById('minDbInput').addEventListener('input', updateChartSettings);
+    document.getElementById('maxDbInput').addEventListener('input', updateChartSettings);
+
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => {
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        function update() {
+          analyser.getFloatFrequencyData(dataArray);
+          const filtered = freqLabels.map((_, i) => dataArray[i]);
+
+          for (let i = ghostCount; i > 0; i--) {
+            chart.data.datasets[i].data = [...chart.data.datasets[i - 1].data];
+          }
+          chart.data.datasets[0].data = filtered;
+
+          chart.update();
+          requestAnimationFrame(update);
+        }
+
+        update();
+      })
+      .catch(err => {
+        console.error('Microphone access denied:', err);
+      });
+  </script>
+</body>
+</html>
