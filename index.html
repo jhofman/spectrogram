@@ -26,18 +26,20 @@
 <body>
   <h2>🎧 Live Frequency Spectrum</h2>
   <div class="controls">
-    <label>Max Frequency (Hz): <input type="number" id="maxFreqInput" value="12000" min="1000" max="22050"></label>
-    <label>Min dB: <input type="number" id="minDbInput" value="-100" min="-150" max="0"></label>
+    <label>Max Frequency (Hz): <input type="number" id="maxFreqInput" value="10000" min="1000" max="22050" step="1000"></label>
+    <label>Min dB: <input type="number" id="minDbInput" value="-80" min="-150" max="0"></label>
     <label>Max dB: <input type="number" id="maxDbInput" value="-30" min="-150" max="0"></label>
+    <label>Refresh Time (ms): <input type="number" id="refreshTimeInput" value="8" min="1"></label>
   </div>
   <canvas id="spectrum" width="800" height="400"></canvas>
   <script>
     const canvas = document.getElementById('spectrum');
     const ctx = canvas.getContext('2d');
 
-    let maxFreq = 12000;
-    let minDb = -100;
+    let maxFreq = 10000;
+    let minDb = -80;
     let maxDb = -30;
+    let refreshTime = 8; // Default refresh time in milliseconds
     const fftSize = 2048;
     const ghostCount = 10;
 
@@ -112,6 +114,9 @@
     document.getElementById('maxFreqInput').addEventListener('input', updateChartSettings);
     document.getElementById('minDbInput').addEventListener('input', updateChartSettings);
     document.getElementById('maxDbInput').addEventListener('input', updateChartSettings);
+    document.getElementById('refreshTimeInput').addEventListener('input', () => {
+      refreshTime = parseInt(document.getElementById('refreshTimeInput').value);
+    });
 
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
@@ -120,7 +125,14 @@
 
         function update() {
           analyser.getFloatFrequencyData(dataArray);
-          const filtered = freqLabels.map((_, i) => dataArray[i]);
+
+          // Use the current value of minDb as the noise floor
+          const noiseFloor = minDb;
+
+          // Apply the noise floor filter
+          const filtered = freqLabels.map((_, i) => 
+            dataArray[i] >= noiseFloor ? dataArray[i] : noiseFloor
+          );
 
           for (let i = ghostCount; i > 0; i--) {
             chart.data.datasets[i].data = [...chart.data.datasets[i - 1].data];
@@ -128,7 +140,7 @@
           chart.data.datasets[0].data = filtered;
 
           chart.update();
-          requestAnimationFrame(update);
+          setTimeout(update, refreshTime); // Use refreshTime for the interval
         }
 
         update();
